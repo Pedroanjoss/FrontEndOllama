@@ -1,17 +1,31 @@
 <template>
   <q-page class="flex flex-center">
     <div class="container">
-      <q-input v-model="prompt" label="Enter your prompt" class="input-box" />
-
-      <div class="button-container">
-        <q-btn @click="sendPrompt" :loading="loading" label="Send" color="primary" />
+      <!-- Seção de interação com a IA -->
+      <div class="section">
+        <q-input v-model="prompt" label="Digite seu prompt para a IA" class="input-box" />
+        <div class="button-container">
+          <q-btn @click="sendPrompt" :loading="loading" label="Enviar para IA" color="primary" />
+        </div>
+        <q-card v-if="aiResponse" class="response-card q-mt-md">
+          <q-card-section>
+            <p v-html="aiResponse" class="response-text"></p>
+          </q-card-section>
+        </q-card>
       </div>
 
-      <q-card v-if="formattedResponse" class="response-card q-mt-md">
-        <q-card-section>
-          <p v-html="formattedResponse" class="response-text"></p>
-        </q-card-section>
-      </q-card>
+      <!-- Seção de transcrição do YouTube -->
+      <div class="section q-mt-lg">
+        <q-input v-model="youtubeUrl" label="Digite a URL do vídeo do YouTube" class="input-box" />
+        <div class="button-container">
+          <q-btn @click="fetchTranscript" :loading="loadingTranscript" label="Obter Transcrição" color="primary" />
+        </div>
+        <q-card v-if="transcriptionResponse" class="response-card q-mt-md">
+          <q-card-section>
+            <p v-html="transcriptionResponse" class="response-text"></p>
+          </q-card-section>
+        </q-card>
+      </div>
     </div>
   </q-page>
 </template>
@@ -19,13 +33,17 @@
 <script setup>
 import { ref } from 'vue';
 
-const prompt = ref('');
-const formattedResponse = ref('');
-const loading = ref(false);
+const prompt = ref(''); // Input para a IA
+const youtubeUrl = ref(''); // Input para a URL do vídeo
+const aiResponse = ref(''); // Resposta da IA
+const transcriptionResponse = ref(''); // Resposta da transcrição
+const loading = ref(false); // Estado de carregamento para a IA
+const loadingTranscript = ref(false); // Estado de carregamento para a transcrição
 
+// Função para enviar o prompt para a IA
 const sendPrompt = async () => {
   loading.value = true;
-  formattedResponse.value = ''; // Clear previous response
+  aiResponse.value = ''; // Limpa a resposta anterior
 
   try {
     const res = await fetch('http://localhost:3031', {
@@ -54,21 +72,44 @@ const sendPrompt = async () => {
             const parsed = JSON.parse(line);
             if (parsed.response) {
               text += parsed.response;
-              formattedResponse.value = formatText(text);
+              aiResponse.value = formatText(text);
             }
           } catch (e) {
-            console.error('Error parsing JSON chunk:', e);
+            console.error('Erro ao processar o JSON:', e);
           }
         }
       }
     }
   } catch (error) {
-    console.error('Error sending prompt:', error);
+    console.error('Erro ao enviar o prompt:', error);
   } finally {
     loading.value = false;
   }
 };
 
+// Função para buscar a transcrição do vídeo do YouTube
+const fetchTranscript = async () => {
+  loadingTranscript.value = true;
+  transcriptionResponse.value = ''; // Limpa a resposta anterior
+
+  try {
+    const res = await fetch('http://localhost:3031/transcribe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url: youtubeUrl.value }), // Envia a URL do vídeo
+    });
+
+    transcriptionResponse.value = await res.text();
+  } catch (error) {
+    console.error('Erro ao buscar a transcrição:', error);
+  } finally {
+    loadingTranscript.value = false;
+  }
+};
+
+// Função para formatar o texto da resposta
 function formatText(text) {
   return text.replace(/\n/g, '<br>');
 }
@@ -96,9 +137,10 @@ function formatText(text) {
 }
 
 .q-btn {
-  width: 150px;
+  width: 180px; /* Aumenta a largura dos botões */
   height: 50px;
-  font-size: 1.1rem;
+  font-size: 1rem; /* Tamanho da fonte ajustado */
+  padding: 0 20px; 
 }
 
 .response-card {
@@ -109,5 +151,10 @@ function formatText(text) {
 .response-text {
   font-size: 1.2rem;
   line-height: 1.6;
+}
+
+.section {
+  width: 100%;
+  margin-bottom: 30px;
 }
 </style>
