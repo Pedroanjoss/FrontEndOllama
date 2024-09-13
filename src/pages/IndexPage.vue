@@ -26,6 +26,19 @@
           </q-card-section>
         </q-card>
       </div>
+
+      <!-- Seção para exibir o resumo do vídeo -->
+      <div class="section q-mt-lg">
+        <q-input v-model="videoUrlForSummary" label="Digite a URL do vídeo para resumo" class="input-box" />
+        <div class="button-container">
+          <q-btn @click="fetchSummary" :loading="loadingSummary" label="Obter Resumo" color="primary" />
+        </div>
+        <q-card v-if="summaryResponse" class="response-card q-mt-md">
+          <q-card-section>
+            <p v-html="summaryResponse" class="response-text"></p>
+          </q-card-section>
+        </q-card>
+      </div>
     </div>
   </q-page>
 </template>
@@ -33,17 +46,21 @@
 <script setup>
 import { ref } from 'vue';
 
-const prompt = ref(''); // Input para a IA
-const youtubeUrl = ref(''); // Input para a URL do vídeo
-const aiResponse = ref(''); // Resposta da IA
-const transcriptionResponse = ref(''); // Resposta da transcrição
-const loading = ref(false); // Estado de carregamento para a IA
-const loadingTranscript = ref(false); // Estado de carregamento para a transcrição
+// Inputs e estados
+const prompt = ref('');
+const youtubeUrl = ref('');
+const videoUrlForSummary = ref('');
+const aiResponse = ref('');
+const transcriptionResponse = ref('');
+const summaryResponse = ref('');
+const loading = ref(false);
+const loadingTranscript = ref(false);
+const loadingSummary = ref(false);
 
 // Função para enviar o prompt para a IA
 const sendPrompt = async () => {
   loading.value = true;
-  aiResponse.value = ''; // Limpa a resposta anterior
+  aiResponse.value = '';
 
   try {
     const res = await fetch('http://localhost:3031', {
@@ -53,6 +70,10 @@ const sendPrompt = async () => {
       },
       body: JSON.stringify({ text: prompt.value }),
     });
+
+    if (!res.body) {
+      throw new Error('Resposta do servidor não contém corpo');
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -90,7 +111,7 @@ const sendPrompt = async () => {
 // Função para buscar a transcrição do vídeo do YouTube
 const fetchTranscript = async () => {
   loadingTranscript.value = true;
-  transcriptionResponse.value = ''; // Limpa a resposta anterior
+  transcriptionResponse.value = '';
 
   try {
     const res = await fetch('http://localhost:3031/transcribe', {
@@ -98,7 +119,7 @@ const fetchTranscript = async () => {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ url: youtubeUrl.value }), // Envia a URL do vídeo
+      body: JSON.stringify({ url: youtubeUrl.value }),
     });
 
     transcriptionResponse.value = await res.text();
@@ -106,6 +127,57 @@ const fetchTranscript = async () => {
     console.error('Erro ao buscar a transcrição:', error);
   } finally {
     loadingTranscript.value = false;
+  }
+};
+
+// Função para buscar o resumo do vídeo
+const fetchSummary = async () => {
+  loadingSummary.value = true;
+  summaryResponse.value = '';
+
+  try {
+    const res = await fetch('http://localhost:3031/resume', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url: videoUrlForSummary.value }),
+    });
+
+    if (!res.body) {
+      throw new Error('Resposta do servidor não contém corpo');
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let done = false;
+    let text = '';
+
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      done = readerDone;
+
+      if (value) {
+        const chunk = decoder.decode(value, { stream: !done });
+        const lines = chunk.split('\n').filter(Boolean);
+
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.response) {
+              text += parsed.response;
+              summaryResponse.value = formatText(text);
+            }
+          } catch (e) {
+            console.error('Erro ao processar o JSON:', e);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Erro ao buscar o resumo:', error);
+  } finally {
+    loadingSummary.value = false;
   }
 };
 
@@ -137,10 +209,10 @@ function formatText(text) {
 }
 
 .q-btn {
-  width: 180px; /* Aumenta a largura dos botões */
+  width: 180px;
   height: 50px;
-  font-size: 1rem; /* Tamanho da fonte ajustado */
-  padding: 0 20px; 
+  font-size: 1rem;
+  padding: 0 20px;
 }
 
 .response-card {
