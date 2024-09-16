@@ -14,6 +14,26 @@
         </q-card>
       </div>
 
+      <!-- Seção para upload de imagem -->
+      <div class="section q-mt-lg">
+        <q-uploader
+          label="Envie uma imagem"
+          @added="onFilesAdded"
+          @removed="onFilesRemoved"
+          ref="uploader"
+          factory="fileFactory"
+          accept="image/*"
+        />
+        <div class="button-container">
+          <q-btn @click="sendImage" :loading="loadingImage" label="Enviar Imagem" color="primary" />
+        </div>
+        <q-card v-if="imageResponse" class="response-card q-mt-md">
+          <q-card-section>
+            <p v-html="imageResponse" class="response-text"></p>
+          </q-card-section>
+        </q-card>
+      </div>
+
       <!-- Seção de transcrição do YouTube -->
       <div class="section q-mt-lg">
         <q-input v-model="youtubeUrl" label="Digite a URL do vídeo do YouTube" class="input-box" />
@@ -53,9 +73,12 @@ const videoUrlForSummary = ref('');
 const aiResponse = ref('');
 const transcriptionResponse = ref('');
 const summaryResponse = ref('');
+const imageResponse = ref('');
 const loading = ref(false);
 const loadingTranscript = ref(false);
 const loadingSummary = ref(false);
+const loadingImage = ref(false);
+let selectedFiles = ref([]);
 
 // Função para enviar o prompt para a IA
 const sendPrompt = async () => {
@@ -181,6 +204,82 @@ const fetchSummary = async () => {
   }
 };
 
+// Função para capturar os arquivos adicionados ao q-uploader
+const onFilesAdded = (files) => {
+  selectedFiles.value = files;
+};
+
+const onFilesRemoved = (files) => {
+  selectedFiles.value = selectedFiles.value.filter(file => !files.includes(file));
+};
+
+// Função para enviar a imagem para o backend
+const sendImage = async () => {
+  if (selectedFiles.value.length === 0) {
+    console.error('Nenhuma imagem foi selecionada');
+    return;
+  }
+
+  loadingImage.value = true;
+  imageResponse.value = '';
+
+  const file = selectedFiles.value[0];
+  
+  // Converter arquivo de imagem para base64
+  const reader = new FileReader();
+
+  // Definir o que fazer quando a leitura for concluída
+  reader.onload = async () => {
+    const base64Image = reader.result; // Isso contém a imagem em formato base64
+
+    try {
+      const res = await fetch('http://localhost:3031/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: base64Image }),
+      });
+
+      if (!res.body) throw new Error('Resposta do servidor não contém corpo');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let text = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+
+        if (value) {
+          const chunk = decoder.decode(value, { stream: !done });
+          const lines = chunk.split('\n').filter(Boolean);
+
+          for (const line of lines) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.response) {
+                text += parsed.response;
+                imageResponse.value = formatText(text);
+              }
+            } catch (e) {
+              console.error('Erro ao processar o JSON:', e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao enviar a imagem:', error);
+    } finally {
+      loadingImage.value = false;
+    }
+  };
+
+  // Iniciar a leitura do arquivo como base64
+  reader.readAsDataURL(file);
+};
+
 // Função para formatar o texto da resposta
 function formatText(text) {
   return text.replace(/\n/g, '<br>');
@@ -197,7 +296,7 @@ function formatText(text) {
   align-items: center;
 }
 
-.input-box {
+.input-box, .q-uploader {
   width: 100%;
   font-size: 1.2rem;
 }
@@ -217,16 +316,9 @@ function formatText(text) {
 
 .response-card {
   width: 100%;
-  margin-top: 30px;
 }
 
 .response-text {
-  font-size: 1.2rem;
-  line-height: 1.6;
-}
-
-.section {
-  width: 100%;
-  margin-bottom: 30px;
+  white-space: pre-wrap;
 }
 </style>
